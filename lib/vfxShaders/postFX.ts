@@ -13,7 +13,6 @@ export const PostShader = {
   fragmentShader: `
     uniform sampler2D tDiffuse;uniform float time;uniform vec2 mouse,resolution;varying vec2 vUv;
     float rand(vec3 p){return fract(sin(dot(p,vec3(829.,4839.,432.)))*39428.);}
-    vec2 zoom(vec2 uv,float t){return(uv-.5)*t+.5;}
     vec4 cascade(vec2 uv,float t){
       vec2 p=uv*2.-1.;p.y+=.3;
       float g=exp(-pow(abs(p.y-sin(p.x*3.+t*.3+sin(p.x*2.)*.5)*.15)*3.,2.)*2.)*.8
@@ -21,19 +20,17 @@ export const PostShader = {
              +exp(-pow(abs(p.y-sin(p.x*7.+t*.25)*.08+.15)*5.,2.)*4.)*.5;
       return vec4((vec3(g)+vec3(.2)*smoothstep(.8,0.,abs(p.y)))*g*.5,g*.5);
     }
+    vec2 zoom(vec2 uv,float t){return(uv-.5)*t+.5;}
     void main(){
       vec2 uv=vUv,p=uv*2.-1.;p.x*=resolution.x/resolution.y;
       float l=length(p);
       uv=zoom(uv,.6+smoothstep(0.,1.,pow(l,2.)*.3));
-      uv=(uv-.5)*(1.+rand(vec3(atan(p.y,p.x),time,0.))*pow(l*.7,3.)*.3)+.5;
-      vec2 dir=normalize(p)*l*.003;
-      vec3 c=vec3(texture2D(tDiffuse,uv+dir).r,texture2D(tDiffuse,uv).g,texture2D(tDiffuse,uv-dir).b);
-      float lum=dot(c,vec3(.2126,.7152,.0722));c=vec3(lum);
+      vec4 tex=texture2D(tDiffuse,uv);
+      float lum=dot(tex.rgb,vec3(.2126,.7152,.0722));
+      vec3 c=vec3(lum);
       c+=(sin(uv.y*resolution.y*.7+time*100.)*sin(uv.y*resolution.y*.3-time*130.))*.02;
       c+=smoothstep(.01,.0,min(fract(uv.x*20.),fract(uv.y*20.)))*.04;
-      c=c*(1.1-l*l)+rand(vec3(p,time))*.015;
       c+=cascade(uv,time).rgb*(1.-clamp(lum,0.,1.))*.35;
-      c*=mix(1.,smoothstep(1.5,.2,l),.25);
       gl_FragColor=vec4(c,1.);
     }
   `,
