@@ -124,7 +124,12 @@ export function initVFX() {
     buildGallery(scene, gallery);
     cleanupDrag = setupDrag();
 
+    // Clean up any existing scroll element
+    const existingScroll = document.querySelector('[data-vfx-scroll]');
+    if (existingScroll) existingScroll.remove();
+
     scrollEl = document.createElement('div');
+    scrollEl.setAttribute('data-vfx-scroll', 'true');
     scrollEl.style.cssText =
       'position:fixed;top:0;left:0;width:100%;height:100%;overflow-y:scroll;z-index:499;pointer-events:auto;';
     const inner = document.createElement('div');

@@ -5,45 +5,120 @@ import { useSnapshot } from "valtio";
 import styles from "./UIModal.module.css";
 import { hudState, closeModal } from "@/lib/store/hudStore";
 
+interface UIModalProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
 const MapPanel = dynamic(() => import("./MapPanel"), { ssr: false });
 
-export default function UIModal() {
-  const snap  = useSnapshot(hudState);
+export default function UIModal({ isOpen, onClose }: UIModalProps) {
+  const snap = useSnapshot(hudState);
   const [visible, setVisible] = useState(false);
+  const [uiFading, setUIFading] = useState(false);
   const [closing, setClosing] = useState(false);
-
+  
+  const isModalOpen = isOpen ?? snap.modalOpen;
+  
   const handleClose = useCallback(() => {
-    setClosing(true);
-    setTimeout(() => setClosing(false), 500);
-    closeModal();
-  }, []);
-
+    if (uiFading || closing) return;
+    
+    // Phase 1: fade out UI elements
+    setUIFading(true);
+    
+    // Phase 2: fade out container after UI elements
+    setTimeout(() => {
+      setUIFading(false);
+      setClosing(true);
+      
+      // Phase 3: actually close after container fade
+      setTimeout(() => {
+        if (onClose) {
+          onClose();
+        } else {
+          closeModal();
+        }
+        setClosing(false);
+        setVisible(false);
+      }, 500);
+    }, 400);
+  }, [uiFading, closing, onClose]);
+  
+  // Handle ESC key
   useEffect(() => {
-    if (snap.modalOpen) requestAnimationFrame(() => setVisible(true));
-    else setVisible(false);
-  }, [snap.modalOpen]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
+    const onKey = (e: KeyboardEvent) => { 
+      if (e.key === "Escape" && isModalOpen && !uiFading && !closing) {
+        handleClose();
+      }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleClose]);
-
-  if (!snap.modalOpen) return null;
-
+  }, [isModalOpen, handleClose, uiFading, closing]);
+  
+  // Handle visibility
+  useEffect(() => {
+    if (isModalOpen) {
+      requestAnimationFrame(() => setVisible(true));
+    } else {
+      setUIFading(false);
+      setClosing(false);
+      setVisible(false);
+    }
+  }, [isModalOpen]);
+  
+  if (!isModalOpen && !visible) return null;
+  
   return (
-    <div className={[styles.overlay, visible && styles.vis, closing && styles.closing].filter(Boolean).join(" ")}>
+    <div 
+      className={[
+        styles.overlay, 
+        visible && styles.vis,
+        closing && styles.closing
+      ].filter(Boolean).join(" ")}
+    >
       <div className={styles.mapSection}>
         <div className={styles.mapViewport}>
           <MapPanel />
         </div>
       </div>
-      <div className={styles.bottomBar}>
-        <div className={styles.btnRow}>
-          <button className={styles.enterBtn} onClick={closeModal}>ENTER</button>
-          <button className={styles.closeBtn} onClick={handleClose}>CLOSE</button>
+      
+      <div 
+        className={[
+          styles.bottomBar, 
+          uiFading && styles.uiFading
+        ].filter(Boolean).join(" ")}
+      >
+        <div className={[
+          styles.btnRow, 
+          uiFading && styles.uiFading
+        ].filter(Boolean).join(" ")}>
+          <button 
+            className={[
+              styles.enterBtn, 
+              uiFading && styles.uiFading
+            ].filter(Boolean).join(" ")}
+            onClick={() => {
+              if (onClose) onClose();
+              else closeModal();
+            }}
+          >
+            ENTER
+          </button>
+          <button 
+            className={[
+              styles.closeBtn, 
+              uiFading && styles.uiFading
+            ].filter(Boolean).join(" ")}
+            onClick={handleClose}
+            disabled={uiFading || closing}
+          >
+            CLOSE
+          </button>
         </div>
-        <span className={styles.escHint}>ESC TO DISMISS</span>
+        <span className={[
+          styles.escHint, 
+          uiFading && styles.uiFading
+        ].filter(Boolean).join(" ")}>ESC TO DISMISS</span>
       </div>
     </div>
   );

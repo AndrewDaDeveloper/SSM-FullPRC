@@ -354,7 +354,7 @@ export function initBootScreen() {
     const h = container.clientHeight || window.innerHeight;
 
     asciiInstance = new CanvAscii(
-      { text: '⫷☠⫸', asciiFontSize: 7, textFontSize: 120, textColor: '#fdf9f3', planeBaseHeight: 6 },
+      { text: '⫷S.S.M⫸', asciiFontSize: 7, textFontSize: 120, textColor: '#fdf9f3', planeBaseHeight: 6 },
       container, w, h, THREE
     );
 
@@ -364,6 +364,14 @@ export function initBootScreen() {
     window.addEventListener('resize', () => {
       asciiInstance?.setSize(container.clientWidth, container.clientHeight);
     }, { signal });
+  }
+
+  function flowNoise(x: number, y: number, seed: number): number {
+    const s1 = Math.sin(x * 1.3 + y * 0.7 + seed * 2.1) * 0.5 + 0.5;
+    const s2 = Math.sin(x * 0.6 - y * 1.5 + seed * 1.3 + s1 * 2.4) * 0.5 + 0.5;
+    const s3 = Math.sin(x * 2.1 + y * 1.1 - seed * 0.9 + s2 * 3.1) * 0.5 + 0.5;
+    const s4 = Math.cos(x * 0.9 - y * 2.3 + seed * 1.7 + s3 * 1.8) * 0.5 + 0.5;
+    return (s1 * 0.2 + s2 * 0.3 + s3 * 0.3 + s4 * 0.2);
   }
 
   function runPixelDissolve(onDone: () => void) {
@@ -384,16 +392,24 @@ export function initBootScreen() {
     `;
 
     const ctx        = canvas.getContext('2d')!;
-    const FADE_WINDOW = 0.18;
+    const FADE_WINDOW = 0.22;
     const fadeStart  = new Float32Array(TOTAL);
-    const order      = Array.from({ length: TOTAL }, (_, i) => i);
 
-    for (let i = TOTAL - 1; i > 0; i--) {
-      const j = (Math.random() * (i + 1)) | 0;
-      [order[i], order[j]] = [order[j], order[i]];
-    }
+    const seed = Math.random() * 10;
+
     for (let i = 0; i < TOTAL; i++) {
-      fadeStart[order[i]] = (i / TOTAL) * (1 - FADE_WINDOW);
+      const px = i % W;
+      const py = (i / W) | 0;
+      const nx = px / W;
+      const ny = py / H;
+
+      const f1 = flowNoise(nx * 4.2, ny * 4.2, seed);
+      const f2 = flowNoise(nx * 2.1 + f1 * 1.5, ny * 2.1 - f1 * 1.2, seed + 3.7);
+      const f3 = flowNoise(nx * 6.3 - f2 * 0.8, ny * 5.1 + f2 * 1.1, seed + 7.2);
+
+      const organic = f1 * 0.35 + f2 * 0.40 + f3 * 0.25;
+
+      fadeStart[i] = organic * (1 - FADE_WINDOW);
     }
 
     ctx.fillStyle = '#000';
@@ -401,7 +417,7 @@ export function initBootScreen() {
     bs.style.background = 'transparent';
 
     const startT   = performance.now();
-    const DURATION = 2200;
+    const DURATION = 2400;
 
     function frame(now: number) {
       const raw = Math.min((now - startT) / DURATION, 1);

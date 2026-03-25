@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect } from 'react';
 import { initBootScreen } from '../lib/interface/bootScreen';
 import { initVFX } from '../lib/vfxShaders/initVFX';
 import UIModal from './components/Modal/UIModal';
@@ -38,19 +38,6 @@ function useVFXInit() {
   }, []);
 }
 
-function useModalEvents(setUiModalOpen: React.Dispatch<React.SetStateAction<boolean>>) {
-  useEffect(() => {
-    const onOpen  = () => setUiModalOpen(true);
-    const onClose = () => setUiModalOpen(false);
-    window.addEventListener('open-ui-modal',  onOpen);
-    window.addEventListener('close-ui-modal', onClose);
-    return () => {
-      window.removeEventListener('open-ui-modal',  onOpen);
-      window.removeEventListener('close-ui-modal', onClose);
-    };
-  }, [setUiModalOpen]);
-}
-
 function useBootScreen() {
   useEffect(() => {
     initBootScreen();
@@ -58,20 +45,12 @@ function useBootScreen() {
 }
 
 export default function PageClient() {
-  const [uiModalOpen, setUiModalOpen] = useState(false);
-
   useBootScreen();
   useVFXInit();
-  useModalEvents(setUiModalOpen);
-
-  const closeUIModal = useCallback(() => setUiModalOpen(false), []);
 
   return (
     <ErrorBoundary>
-      <UIModal
-        isOpen={uiModalOpen}
-        onClose={closeUIModal}
-      />
+      <UIModal />
     </ErrorBoundary>
   );
 }

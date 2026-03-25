@@ -1,30 +1,16 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { Map as MaplibreMap, IControl } from "maplibre-gl";
+import type { Map as MaplibreMap, CustomRenderMethodInput } from "maplibre-gl";
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const CX = 23.3219;
 const CY = 42.6977;
 const CENTER: [number, number] = [CX, CY];
 
-const rect = (dx: number, dy: number, w: number, d: number): [number, number][] => [
-  [CX + dx - w / 2, CY + dy - d / 2],
-  [CX + dx + w / 2, CY + dy - d / 2],
-  [CX + dx + w / 2, CY + dy + d / 2],
-  [CX + dx - w / 2, CY + dy + d / 2],
-  [CX + dx - w / 2, CY + dy - d / 2],
-];
-
-const W = 0.00048;
-const D = 0.00020;
-
-const BLOCKS: { contour: [number, number][]; elevation: number; color: [number, number, number] }[] = [
-  { contour: rect(0, 0, 0.00080, 0.00034), elevation: 90,   color: [245, 245, 248] },
-  { contour: rect(0, 0, W, D),             elevation: 400,  color: [236, 236, 240] },
-  { contour: rect(0, 0, W, D),             elevation: 800,  color: [228, 228, 232] },
-  { contour: rect(0, 0, W, D),             elevation: 1200, color: [220, 220, 224] },
-  { contour: rect(0, 0, 0.00074, 0.00030), elevation: 1600, color: [248, 248, 250] },
-  { contour: rect(0, 0, 0.00056, 0.00022), elevation: 2000, color: [255, 255, 255] },
-];
+const MODEL_LNG = 23.3328;
+const MODEL_LAT = 42.7070;
+const MODEL_SCALE_METERS = 3000;
 
 const MAP_STYLE: any = {
   version: 8,
@@ -64,7 +50,6 @@ type MapRef = MaplibreMap & { _ro?: ResizeObserver };
 export default function MapPanel() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<MapRef | null>(null);
-  const deckRef      = useRef<{ finalize?: () => void } | null>(null);
 
   const [loaded, setLoaded]       = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -74,25 +59,8 @@ export default function MapPanel() {
     if (!containerRef.current || mapRef.current) return;
     let destroyed = false;
 
-    Promise.all([
-      import("maplibre-gl"),
-      import("@deck.gl/mapbox"),
-      import("@deck.gl/layers"),
-    ]).then(async ([{ Map: MLMap }, { MapboxOverlay }, { SolidPolygonLayer }]) => {
+    import("maplibre-gl").then(({ Map: MLMap, MercatorCoordinate }) => {
       if (destroyed) return;
-
-      const towerLayer = new SolidPolygonLayer({
-        id: "tower",
-        data: BLOCKS,
-        extruded: true,
-        wireframe: false,
-        filled: true,
-        getPolygon: (d) => d.contour,
-        getElevation: (d) => d.elevation,
-        getFillColor: (d) => [...d.color, 255] as [number, number, number, number],
-        material: { ambient: 0.5, diffuse: 0.8, shininess: 400, specularColor: [255, 255, 255] as [number, number, number] },
-        updateTriggers: {},
-      });
 
       const map = new MLMap({
         container: containerRef.current!,
@@ -112,11 +80,98 @@ export default function MapPanel() {
 
       map.on("load", () => {
         if (destroyed) { map.remove(); return; }
-        const overlay = new MapboxOverlay({ interleaved: false, layers: [towerLayer] });
-        map.addControl(overlay as unknown as IControl);
-        deckRef.current = overlay;
+
+        const origin        = MercatorCoordinate.fromLngLat([MODEL_LNG, MODEL_LAT], 0);
+        const metersPerUnit = origin.meterInMercatorCoordinateUnits();
+        const scale         = metersPerUnit * MODEL_SCALE_METERS;
+
+        const whiteMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.6,
+          metalness: 0.0,
+        });
+
+        let camera:   THREE.Camera        | null = null;
+        let scene:    THREE.Scene         | null = null;
+        let renderer: THREE.WebGLRenderer | null = null;
+
+        const customLayer = {
+          id: "citadel-model",
+          type: "custom" as const,
+          renderingMode: "3d" as const,
+
+          onAdd(_map: MaplibreMap, gl: WebGLRenderingContext) {
+            camera = new THREE.Camera();
+            scene  = new THREE.Scene();
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+
+            const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+            sun.position.set(1, -1, 2).normalize();
+            scene.add(sun);
+
+            const fill = new THREE.DirectionalLight(0xddeeff, 0.5);
+            fill.position.set(-1, 0.5, 0.5).normalize();
+            scene.add(fill);
+
+            new GLTFLoader().load(
+              "/Citadel.glb",
+              (gltf: { scene: THREE.Group }) => {
+                const model = gltf.scene;
+
+                model.traverse((child) => {
+                  if ((child as THREE.Mesh).isMesh) {
+                    (child as THREE.Mesh).material = whiteMaterial;
+                  }
+                });
+
+                const box = new THREE.Box3().setFromObject(model);
+                const size = new THREE.Vector3();
+                box.getSize(size);
+                const maxDim = Math.max(size.x, size.y, size.z);
+                model.scale.setScalar(1 / maxDim);
+
+                const groundedBox = new THREE.Box3().setFromObject(model);
+                model.position.y -= groundedBox.min.y;
+
+                scene!.add(model);
+                map.triggerRepaint();
+              },
+              undefined,
+              (err: unknown) => console.error("GLTFLoader error:", err),
+            );
+
+            renderer = new THREE.WebGLRenderer({
+              canvas: map.getCanvas(),
+              context: gl,
+              antialias: true,
+            });
+            renderer.autoClear = false;
+          },
+
+          render(_gl: WebGLRenderingContext, options: CustomRenderMethodInput) {
+            if (!camera || !scene || !renderer) return;
+
+            const matrix = new THREE.Matrix4().fromArray(
+              options.defaultProjectionData.mainMatrix,
+            );
+
+            const localMatrix = new THREE.Matrix4()
+              .makeTranslation(origin.x, origin.y, origin.z ?? 0)
+              .scale(new THREE.Vector3(scale, -scale, scale))
+              .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+
+            camera.projectionMatrix = matrix.multiply(localMatrix);
+            renderer.resetState();
+            renderer.render(scene, camera);
+            map.triggerRepaint();
+          },
+        };
+
+        map.addLayer(customLayer);
         setPtr();
         setLoaded(true);
+
         map.on("click", (e: any) => {
           if (map.queryRenderedFeatures(e.point, { layers: ["b3", "bf"] }).length) {
             setAboutPos({ x: e.point.x, y: e.point.y });
@@ -138,8 +193,6 @@ export default function MapPanel() {
     return () => {
       destroyed = true;
       mapRef.current?._ro?.disconnect();
-      deckRef.current?.finalize?.();
-      deckRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
     };
